@@ -2,14 +2,23 @@ import os
 import wandb
 from loadotenv import load_env 
 
+from torchvision.models import resnet18, ResNet
+from torch import nn
+from pathlib import Path
+import torch
+from torchvision.transforms import v2 as transforms
+
 load_env()
+
 # Local folder and filename for the downloaded model
 MODELS_DIR = "../models"
 MODEL_FILENAME = "best_model.pth"
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 
+
 def download_artifact():
+    # this will raise an assertion error if the variable is not found
     assert 'WANDB_API_KEY' in os.environ, "WANDB_API_KEY not found in environment variables"
     wandb_org = os.environ.get("WANDB_ORG")
     wandb_project = os.environ.get("WANDB_PROJECT")
@@ -21,8 +30,48 @@ def download_artifact():
     api = wandb.Api()
 
     #artifact_path = "username/project_name/artifact_name:version"
-    artifact_path = "pensive1881/mlops_dsr_batch_44/resnet18:v0"
+    # TODO: ensemble the artifact path from environment variables
+    #artifact_path = "antonios-org/mlops_dsr_batch_44/resnet18:v0"
+    artifact_path = f"{wandb_org}/{wandb_project}/{wandb_model_name}:{wandb_model_version}"
     artifact = api.artifact(artifact_path, type="model")
+    print(f"Downloading artifact from {artifact_path}")
+
     artifact.download(root=MODELS_DIR)
 
-download_artifact()
+def get_raw_model() -> ResNet:
+     '''Get the architecture of the model (random weights), this must match the architecture used during training'''
+     architecture = resnet18(weights=None)
+     architecture.fc = nn.Sequential(
+         nn.Linear(in_features=512, out_features=512),
+         nn.ReLU(),
+         nn.Linear(in_features=512, out_features=6)
+     )
+     
+     return architecture 
+
+def load_model() -> ResNet:
+    '''Gives us the model with the trained weights'''
+    download_artifact()
+    # This gets the model architecture with random weights
+    model = get_raw_model()
+    
+    # This loads the weights from the file into a state dictionary
+    model_state_dict_path = Path(MODELS_DIR) / MODEL_FILENAME
+    model_state_dict = torch.load(model_state_dict_path, map_location='cpu')
+    # This merges the trained weights into the model architecture so that it no longer has random weights
+    model.load_state_dict(model_state_dict, strict=True)
+
+    return model
+
+
+def load_transforms() -> transforms.Compose:
+    return transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                                 std=[0.229, 0.224, 0.225]),
+        ]
+    )

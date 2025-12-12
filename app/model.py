@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 from torchvision.transforms import v2 as transforms
 
-load_env()
+#load_env()
 
 # Local folder and filename for the downloaded model
 MODELS_DIR = "../models"
